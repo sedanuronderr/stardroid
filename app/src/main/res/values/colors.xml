@@ -1,0 +1,9 @@
+<resources>
+    <color name="black_overlay">#66DF2222</color>
+    <color name="high_accuracy">#8BC34A</color>
+    <color name="medium_accuracy">#FFEB3B</color>
+    <color name="low_accuracy">#FF9800</color>
+    <color name="bad_sensor">#E91E63</color>
+    <color name="absent_sensor">#ffa0a0a0</color>
+    <color name="transparent_blackk">#17000000</color>
+</resources>
