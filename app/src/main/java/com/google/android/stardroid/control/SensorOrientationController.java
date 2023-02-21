@@ -113,6 +113,7 @@ public class SensorOrientationController extends AbstractController
           dampingIndex = 3;
         }
         int sensorSpeed = SensorManager.SENSOR_DELAY_GAME;
+
         if (ApplicationConstants.SENSOR_SPEED_SLOW.equals(speedPreference)) {
           sensorSpeed = SensorManager.SENSOR_DELAY_NORMAL;
         } else if (ApplicationConstants.SENSOR_SPEED_HIGH.equals(speedPreference)) {
@@ -136,6 +137,7 @@ public class SensorOrientationController extends AbstractController
         manager.registerListener(accelerometerSmoother,
                                  accelerometer,
                                  sensorSpeed);
+
         manager.registerListener(compassSmoother,
                                  compass,
                                  sensorSpeed);

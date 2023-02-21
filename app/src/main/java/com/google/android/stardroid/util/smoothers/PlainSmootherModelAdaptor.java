@@ -54,14 +54,19 @@ public class PlainSmootherModelAdaptor implements SensorEventListener {
       acceleration.x = values[0];
       acceleration.y = values[1];
       acceleration.z = values[2];
+
+
     } else if (sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
       magneticValues.x = values[0];
       magneticValues.y = values[1];
       magneticValues.z = reverseMagneticZaxis ? -values[2] : values[2];
     } else {
+
       Log.e(TAG, "Pump is receiving values that aren't accel or magnetic");
     }
     model.setPhoneSensorValues(acceleration, magneticValues);
+
+    Log.e(TAG, "Request threw uncaught throwable"+acceleration);
   }
 
   @Override
