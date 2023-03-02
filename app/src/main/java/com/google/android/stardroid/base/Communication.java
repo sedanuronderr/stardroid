@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
 
+import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
@@ -29,7 +30,7 @@ public class Communication extends InjectableActivity {
     private boolean isBtConnected = false;
     private StringBuilder DataStringIN = new StringBuilder();
     static final UUID myUUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-    Button on, off;
+    Button data;
 
 
     @SuppressLint("HandlerLeak")
@@ -39,12 +40,31 @@ public class Communication extends InjectableActivity {
 
         setContentView(R.layout.activity_communication);
 
-        // on =  findViewById(R.id.on_button);
-        //off = findViewById(R.id.off_button);
+
+         data = findViewById(R.id.data_button);
+
         Intent newint = getIntent();
         address = newint.getStringExtra(bluetooth.EXTRA_ADDRESS);
 
         new Communication.BTbaglan().execute();   // execute = gerçekleştir
+
+         data.setOnClickListener(new View.OnClickListener(){
+
+             @Override
+             public void onClick(View v) {
+                 sendData("1");
+             }
+         });
+    }
+
+    private void sendData(String s) {
+        if ( btSocket != null ) {
+            try {
+                btSocket.getOutputStream().write(s.toString().getBytes());
+            } catch (IOException e) {
+                Toast.makeText(this, "Error", Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 
     private void Disconnect() {
