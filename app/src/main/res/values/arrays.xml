@@ -30,4 +30,10 @@
             translation_description="Shows the sky as pointed at by the long edge of the phone">Pointer mode
         </item>
     </string-array>
+
+    <string-array name="OS_name">
+        <item> Android</item>
+        <item> IOS </item>
+        <item> Windows</item>
+    </string-array>
 </resources>

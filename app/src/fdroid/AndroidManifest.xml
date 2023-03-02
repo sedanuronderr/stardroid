@@ -2,7 +2,7 @@
 
     <application>
         <activity
-            android:name="com.google.MainActivity"
+            android:name=".StardroidApplication"
             android:exported="false"
 
             />

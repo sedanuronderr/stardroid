@@ -17,20 +17,28 @@ package com.google.android.stardroid.activities;
 import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
 import static android.Manifest.permission_group.CAMERA;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.FragmentManager;
+import android.app.ProgressDialog;
 import android.app.SearchManager;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothServerSocket;
+import android.bluetooth.BluetoothSocket;
+import android.content.BroadcastReceiver;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.content.pm.PackageManager;
-import android.graphics.PixelFormat;
 import android.hardware.Camera;
 import android.hardware.Sensor;
 import android.hardware.SensorManager;
 import android.media.MediaPlayer;
 import android.opengl.GLSurfaceView;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -48,7 +56,9 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.WindowManager;
 import android.view.animation.Animation;
+import android.widget.ArrayAdapter;
 import android.widget.ImageButton;
+import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -70,6 +80,7 @@ import com.google.android.stardroid.activities.util.ActivityLightLevelManager;
 import com.google.android.stardroid.activities.util.FullscreenControlsManager;
 import com.google.android.stardroid.activities.util.GooglePlayServicesChecker;
 import com.google.android.stardroid.base.Lists;
+import com.google.android.stardroid.base.bluetooth;
 import com.google.android.stardroid.control.AstronomerModel;
 import com.google.android.stardroid.control.AstronomerModel.Pointing;
 import com.google.android.stardroid.control.ControllerGroup;
@@ -96,6 +107,8 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -105,7 +118,7 @@ import javax.inject.Provider;
  * The main map-rendering Activity.
  */
 public class DynamicStarMapActivity extends InjectableActivity
-    implements OnSharedPreferenceChangeListener, HasComponent<DynamicStarMapComponent>{
+        implements OnSharedPreferenceChangeListener, HasComponent<DynamicStarMapComponent> {
   private static final int TIME_DISPLAY_DELAY_MILLIS = 1000;
   private FullscreenControlsManager fullscreenControlsManager;
 
@@ -116,16 +129,33 @@ public class DynamicStarMapActivity extends InjectableActivity
   private Camera camera;
 
   private SurfaceView surfaceView;
+  private Menu mMenu;
 
 
+  private enum ScanState {NONE, LESCAN, DISCOVERY, DISCOVERY_FINISHED}
 
+  private ScanState scanState = ScanState.NONE;
+  private static final long LESCAN_PERIOD = 10000; // similar to bluetoothAdapter.startDiscovery
 
+  private BluetoothAdapter.LeScanCallback leScanCallback;
+  private BroadcastReceiver discoveryBroadcastReceiver;
+  private IntentFilter discoveryIntentFilter;
 
+  private Menu menu;
+
+  BluetoothSocket btSocket = null;
+  BluetoothDevice remoteDevice;
+  BluetoothServerSocket mmServer;
+  private boolean isBtConnected = false;
+
+  private ProgressDialog progress;
+  String address;
 
   @Override
   public DynamicStarMapComponent getComponent() {
     return daggerComponent;
   }
+
 
   /**
    * Passed to the renderer to get per-frame updates from the model.
@@ -138,7 +168,7 @@ public class DynamicStarMapActivity extends InjectableActivity
     private boolean viewDirectionMode;
 
     public RendererModelUpdateClosure(AstronomerModel model,
-        RendererController rendererController, SharedPreferences sharedPreferences) {
+                                      RendererController rendererController, SharedPreferences sharedPreferences) {
       this.model = model;
       this.rendererController = rendererController;
       // TODO(jontayler): figure out why we need to do this here.
@@ -169,8 +199,8 @@ public class DynamicStarMapActivity extends InjectableActivity
 
   private static void updateViewDirectionMode(AstronomerModel model, SharedPreferences sharedPreferences) {
     String viewDirectionMode =
-        sharedPreferences.getString(ApplicationConstants.VIEW_MODE_PREFKEY, "STANDARD");
-    switch(viewDirectionMode) {
+            sharedPreferences.getString(ApplicationConstants.VIEW_MODE_PREFKEY, "STANDARD");
+    switch (viewDirectionMode) {
       case "ROTATE90":
         model.setViewDirectionMode(AstronomerModel.ViewDirectionMode.ROTATE90);
         break;
@@ -191,66 +221,114 @@ public class DynamicStarMapActivity extends InjectableActivity
   private static final String TAG = MiscUtil.getTag(DynamicStarMapActivity.class);
 
   private ImageButton cancelSearchButton;
-  @Inject ControllerGroup controller;
+  @Inject
+  ControllerGroup controller;
   private GestureDetector gestureDetector;
-  @Inject AstronomerModel model;
+  @Inject
+  AstronomerModel model;
   private RendererController rendererController;
   private boolean nightMode = false;
   private boolean searchMode = false;
   private Vector3 searchTarget = CoordinateManipulationsKt.getGeocentricCoords(0, 0);
 
-  @Inject SharedPreferences sharedPreferences;
+  @Inject
+  SharedPreferences sharedPreferences;
   private GLSurfaceView skyView;
   private PowerManager.WakeLock wakeLock;
   private String searchTargetName;
-  @Inject LayerManager layerManager;
+  @Inject
+  LayerManager layerManager;
   // TODO(widdows): Figure out if we should break out the
   // time dialog and time player into separate activities.
   private View timePlayerUI;
   private DynamicStarMapComponent daggerComponent;
-  @Inject @Named("timetravel") Provider<MediaPlayer> timeTravelNoiseProvider;
-  @Inject @Named("timetravelback") Provider<MediaPlayer> timeTravelBackNoiseProvider;
+  @Inject
+  @Named("timetravel")
+  Provider<MediaPlayer> timeTravelNoiseProvider;
+  @Inject
+  @Named("timetravelback")
+  Provider<MediaPlayer> timeTravelBackNoiseProvider;
   private MediaPlayer timeTravelNoise;
   private MediaPlayer timeTravelBackNoise;
-  @Inject Handler handler;
-  @Inject Analytics analytics;
-  @Inject GooglePlayServicesChecker playServicesChecker;
-  @Inject FragmentManager fragmentManager;
-  @Inject EulaDialogFragment eulaDialogFragmentNoButtons;
-  @Inject TimeTravelDialogFragment timeTravelDialogFragment;
-  @Inject HelpDialogFragment helpDialogFragment;
-  @Inject NoSearchResultsDialogFragment noSearchResultsDialogFragment;
-  @Inject MultipleSearchResultsDialogFragment multipleSearchResultsDialogFragment;
-  @Inject NoSensorsDialogFragment noSensorsDialogFragment;
-  @Inject SensorAccuracyMonitor sensorAccuracyMonitor;
+  @Inject
+  Handler handler;
+  @Inject
+  Analytics analytics;
+  @Inject
+  GooglePlayServicesChecker playServicesChecker;
+  @Inject
+  FragmentManager fragmentManager;
+  @Inject
+  EulaDialogFragment eulaDialogFragmentNoButtons;
+  @Inject
+  TimeTravelDialogFragment timeTravelDialogFragment;
+  @Inject
+  HelpDialogFragment helpDialogFragment;
+  @Inject
+  NoSearchResultsDialogFragment noSearchResultsDialogFragment;
+  @Inject
+  MultipleSearchResultsDialogFragment multipleSearchResultsDialogFragment;
+  @Inject
+  NoSensorsDialogFragment noSensorsDialogFragment;
+  @Inject
+  SensorAccuracyMonitor sensorAccuracyMonitor;
   // A list of runnables to post on the handler when we resume.
   private List<Runnable> onResumeRunnables = new ArrayList<>();
 
   // We need to maintain references to these objects to keep them from
   // getting gc'd.
   @SuppressWarnings("unused")
-  @Inject MagneticDeclinationCalculatorSwitcher magneticSwitcher;
+  @Inject
+  MagneticDeclinationCalculatorSwitcher magneticSwitcher;
 
   private DragRotateZoomGestureDetector dragZoomRotateDetector;
-  @Inject Animation flashAnimation;
+  @Inject
+  Animation flashAnimation;
   private ActivityLightLevelManager activityLightLevelManager;
   private long sessionStartTime;
+//*******************************************************
+
+  BluetoothAdapter myBluetoothAdapter;
+  Intent btEnablingIntent;
+  int requestCodeForeEnable;
+
+  BluetoothDevice[] btArray;
+  // SendReceive sendReceive;
+  static final int STATE_LISTENING = 1;
+  static final int STATE_CONNECTİNG = 2;
+  static final int STATE_CONNECTED = 3;
+  static final int STATE_CONNECTION_FALLED = 4;
+  static final int STATE_MESSAGE_RECEIVED = 5;
+  ListView listView;
+
+  private static final String APP_NAME = "STARMAP";
+  private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+
+
+  TextView msg_box, status;
 
   @Override
   public void onCreate(Bundle icicle) {
     Log.d(TAG, "onCreate at " + System.currentTimeMillis());
     super.onCreate(icicle);
 
+    myBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
+
+    btEnablingIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+    requestCodeForeEnable = 1;
+
+
     daggerComponent = DaggerDynamicStarMapComponent.builder()
-        .applicationComponent(getApplicationComponent())
-        .dynamicStarMapModule(new DynamicStarMapModule(this)).build();
+            .applicationComponent(getApplicationComponent())
+            .dynamicStarMapModule(new DynamicStarMapModule(this)).build();
     daggerComponent.inject(this);
 
     sharedPreferences.registerOnSharedPreferenceChangeListener(this);
 
     // Set up full screen mode, hide the system UI etc.
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
-                         WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
 
     // TODO(jontayler): upgrade to
@@ -271,13 +349,14 @@ public class DynamicStarMapActivity extends InjectableActivity
     setDefaultKeyMode(DEFAULT_KEYS_SEARCH_LOCAL);
 
     ActivityLightLevelChanger activityLightLevelChanger = new ActivityLightLevelChanger(this,
-        new NightModeable() {
-          @Override
-          public void setNightMode(boolean nightMode1) {
-            DynamicStarMapActivity.this.rendererController.queueNightVisionMode(nightMode1);
-          }});
+            new NightModeable() {
+              @Override
+              public void setNightMode(boolean nightMode1) {
+                DynamicStarMapActivity.this.rendererController.queueNightVisionMode(nightMode1);
+              }
+            });
     activityLightLevelManager = new ActivityLightLevelManager(activityLightLevelChanger,
-                                                              sharedPreferences);
+            sharedPreferences);
 
     PowerManager pm = ContextCompat.getSystemService(this, PowerManager.class);
     if (pm != null) {
@@ -293,6 +372,74 @@ public class DynamicStarMapActivity extends InjectableActivity
     }
     Log.d(TAG, "-onCreate at " + System.currentTimeMillis());
   }
+
+  private void Disconnect() {
+    if (btSocket != null) {
+      try {
+        btSocket.close();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    finish();
+  }
+
+  @Override
+  public void onBackPressed() {
+    super.onBackPressed();
+    Disconnect();
+  }
+
+
+  private class BTbaglan extends AsyncTask<Void, Void, Void> {
+    private boolean ConnectSuccess = true;
+
+    @Override
+    protected void onPreExecute() {
+      progress = ProgressDialog.show(DynamicStarMapActivity.this, "Bağlanıyor..", "Lütfen Bekleyin");
+    }
+
+    @Override
+    protected Void doInBackground(Void... voids) {
+      try {
+        if (btSocket == null || !isBtConnected) {
+          myBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+          BluetoothDevice cihaz = myBluetoothAdapter.getRemoteDevice(address);
+
+
+            btSocket = cihaz.createRfcommSocketToServiceRecord(MY_UUID);
+            BluetoothAdapter.getDefaultAdapter().cancelDiscovery();
+            btSocket.connect();
+
+
+
+        }
+      }
+        catch (IOException e){
+          ConnectSuccess =false;
+
+      }
+
+
+
+    return null;
+  }
+
+    @Override
+    protected void onPostExecute(Void unused) {
+      super.onPostExecute(unused);
+      if(!ConnectSuccess){
+        Toast.makeText(DynamicStarMapActivity.this, "Bağlantı hatası", Toast.LENGTH_SHORT).show();
+      finish();
+      }else{
+        Toast.makeText(DynamicStarMapActivity.this, "Bağlantı başarılı", Toast.LENGTH_SHORT).show();
+         isBtConnected = true;
+      }
+      progress.dismiss();
+    }
+  }
+
+
   private boolean checkPermissionn() {
     int currentAPIVersion = Build.VERSION.SDK_INT;
     if (currentAPIVersion >= android.os.Build.VERSION_CODES.M) {
@@ -354,18 +501,10 @@ public class DynamicStarMapActivity extends InjectableActivity
   }
 
 
-
-
-
-
-
-
-
-
   private void checkForSensorsAndMaybeWarn() {
     SensorManager sensorManager = ContextCompat.getSystemService(this, SensorManager.class);
     if (sensorManager != null && sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
-        && sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) != null) {
+            && sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) != null) {
       Log.i(TAG, "Minimum sensors present");
       // We want to reset to auto mode on every restart, as users seem to get
       // stuck in manual mode and can't find their way out.
@@ -381,17 +520,17 @@ public class DynamicStarMapActivity extends InjectableActivity
       @Override
       public void run() {
         if (!sharedPreferences
-            .getBoolean(ApplicationConstants.NO_WARN_ABOUT_MISSING_SENSORS, false)) {
+                .getBoolean(ApplicationConstants.NO_WARN_ABOUT_MISSING_SENSORS, false)) {
           Log.d(TAG, "showing no sensor dialog");
           noSensorsDialogFragment.show(fragmentManager, "No sensors dialog");
           // First time, force manual mode.
           sharedPreferences.edit().putBoolean(ApplicationConstants.AUTO_MODE_PREF_KEY, false)
-              .apply();
+                  .apply();
           setAutoMode(false);
         } else {
           Log.d(TAG, "showing no sensor toast");
           Toast.makeText(
-              DynamicStarMapActivity.this, R.string.no_sensor_warning, Toast.LENGTH_LONG).show();
+                  DynamicStarMapActivity.this, R.string.no_sensor_warning, Toast.LENGTH_LONG).show();
           // Don't force manual mode second time through - leave it up to the user.
         }
       }
@@ -414,6 +553,8 @@ public class DynamicStarMapActivity extends InjectableActivity
     super.onCreateOptionsMenu(menu);
     MenuInflater inflater = getMenuInflater();
     inflater.inflate(R.menu.main, menu);
+
+
     return true;
   }
 
@@ -448,7 +589,8 @@ public class DynamicStarMapActivity extends InjectableActivity
     }
     return true;
   }
-
+  private static final String BLANK_FRAGMENT_TAG = "FRAGMENT_TAG";
+  @SuppressLint("MissingPermission")
   @Override
   public boolean onOptionsItemSelected(MenuItem item) {
     super.onOptionsItemSelected(item);
@@ -474,7 +616,7 @@ public class DynamicStarMapActivity extends InjectableActivity
         Log.d(TAG, "Toggling nightmode");
         nightMode = !nightMode;
         sharedPreferences.edit().putString(ActivityLightLevelManager.LIGHT_MODE_KEY,
-            nightMode ? "NIGHT" : "DAY").commit();
+                nightMode ? "NIGHT" : "DAY").commit();
         menuEventBundle.putString(Analytics.MENU_ITEM_EVENT_VALUE, Analytics.TOGGLED_NIGHT_MODE_LABEL);
         break;
       case R.id.menu_item_time:
@@ -510,13 +652,330 @@ public class DynamicStarMapActivity extends InjectableActivity
         menuEventBundle.putString(Analytics.MENU_ITEM_EVENT_VALUE, Analytics.DIAGNOSTICS_OPENED_LABEL);
         startActivity(new Intent(this, DiagnosticActivity.class));
         break;
+      case R.id.ble_setup:
+      success_blue();
+        break;
+      case R.id.ble:
+     //   ServerClass serverClass = new ServerClass();
+     //   serverClass.start();
+        Intent intent3 = new Intent(this, bluetooth.class);
+        startActivity(intent3);
+      // show_dialog();
+
+        break;
       default:
         Log.e(TAG, "Unwired-up menu item");
         return false;
     }
     analytics.trackEvent(Analytics.MENU_ITEM_EVENT, menuEventBundle);
     return true;
+
+
+
+
   }
+
+  void success_blue(){
+    if (myBluetoothAdapter == null) {
+      Toast.makeText(getApplicationContext(), "Bluetooth does not support", Toast.LENGTH_LONG).show();
+
+
+    } else {
+
+      if (!myBluetoothAdapter.isEnabled()) {
+
+        startActivityForResult(btEnablingIntent, requestCodeForeEnable);
+
+      }
+
+    }
+  }
+
+@SuppressLint("MissingPermission")
+void show_dialog(){
+    ListView listvieww = new ListView(this);
+  Set<BluetoothDevice> bt = myBluetoothAdapter.getBondedDevices();
+  myBluetoothAdapter.cancelDiscovery();
+  String[] strings=new String[bt.size()];
+  btArray = new BluetoothDevice[bt.size()];
+  int index=0;
+
+  if( bt.size()>0)
+  {
+    for(BluetoothDevice device : bt)
+    {
+      btArray[index]= device;
+      strings[index]=device.getName();
+      Log.e("connect","device"+ device.getName());
+      index++;
+    }
+
+  }
+//*******************************
+  ArrayAdapter<String> arrayAdapter = new ArrayAdapter<String>(DynamicStarMapActivity.this,android.R.layout.select_dialog_singlechoice,strings);
+  listvieww.setAdapter(arrayAdapter);
+    AlertDialog.Builder builder = new AlertDialog.Builder(this);
+
+   builder.setTitle("Select Device");
+
+    builder.setNegativeButton("cancel", new DialogInterface.OnClickListener() {
+      @Override
+      public void onClick(DialogInterface dialog, int which) {
+
+      }
+    });
+
+
+    builder.setAdapter(arrayAdapter, new DialogInterface.OnClickListener() {
+      @Override
+      public void onClick(DialogInterface dialog, int which) {
+      //  String strName = arrayAdapter.getItem(which);
+      //  builder.setMessage(strName);
+        builder.setView(listvieww);
+       address = btArray[which].getAddress().substring( btArray[which].getAddress().length()-17);
+
+
+
+      /*  try {
+          //cihazın id'si
+         ClientClass clientClass=new ClientClass(btArray[which]);
+
+          Log.e("connect"," cihaz id:"+ btArray[which]);
+          //clientClass.start();
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }*/
+
+
+        Toast.makeText(DynamicStarMapActivity.this, "Device: " + address, Toast.LENGTH_SHORT).show();
+
+
+      }
+    });
+
+  AlertDialog alert = builder.create();
+
+   alert.show();
+}
+
+/*
+  Handler handler1 = new Handler(msg -> {
+    switch (msg.what) {
+      case STATE_LISTENING:
+        Toast.makeText(getApplicationContext(), "Listening", Toast.LENGTH_LONG).show();
+        break;
+      case STATE_CONNECTİNG:
+        Toast.makeText(getApplicationContext(), "connecting", Toast.LENGTH_LONG).show();
+        break;
+      case STATE_CONNECTED:
+        Toast.makeText(getApplicationContext(), "connected", Toast.LENGTH_LONG).show();
+        break;
+      case STATE_CONNECTION_FALLED:
+        Toast.makeText(getApplicationContext(), "connection failed", Toast.LENGTH_LONG).show();
+        break;
+      case STATE_MESSAGE_RECEIVED:
+       byte[] readBuff = (byte[]) msg.obj;
+       String tempMsg = new String(readBuff,0,msg.arg1);
+        Toast.makeText(getApplicationContext(), "Listen", Toast.LENGTH_LONG).show();
+
+        //mesaj
+        break;
+    }
+
+    return false;
+  });
+
+  private class ServerClass extends Thread
+  {
+    private BluetoothServerSocket serverSocket;
+
+    @SuppressLint("MissingPermission")
+    public ServerClass(){
+      BluetoothServerSocket  tmp = null;
+      try {
+        tmp =myBluetoothAdapter.listenUsingRfcommWithServiceRecord(APP_NAME,MY_UUID);
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+      serverSocket = tmp;
+    }
+
+    public void run()
+    {
+      BluetoothSocket socket=null;
+
+      while (true)
+      {
+        try {
+          Message message=Message.obtain();
+          message.what=STATE_CONNECTING;
+          handler1.sendMessage(message);
+
+          socket=serverSocket.accept();
+        } catch (IOException e) {
+          e.printStackTrace();
+          Message message=Message.obtain();
+          message.what=STATE_CONNECTION_FALLED;
+          handler1.sendMessage(message);
+        }
+
+        if(socket != null)
+        {
+          Message message=Message.obtain();
+          message.what=STATE_CONNECTED;
+          handler1.sendMessage(message);
+
+          sendReceive=new SendReceive(socket);
+          sendReceive.start();
+          try {
+            serverSocket.close();
+          } catch (IOException e) {
+            throw new RuntimeException(e);
+          }
+          break;
+        }
+      }
+    }
+    public void cancel() {
+      try {
+        serverSocket.close();
+      } catch (IOException e) {
+        Log.e(TAG, "Could not close the connect socket", e);
+      }
+    }
+  }
+
+  //Alıcı
+  private class ClientClass extends Thread {
+
+    private BluetoothDevice device;
+    private BluetoothSocket socket;
+
+    public ClientClass(BluetoothDevice device1) throws IOException {
+      device = device1;
+      BluetoothSocket tmp = null;
+
+     try {
+        tmp =device.createRfcommSocketToServiceRecord(MY_UUID);
+
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+
+socket = tmp;
+    }
+
+    public void run() {
+      myBluetoothAdapter.cancelDiscovery();
+      try {
+
+        Message message=Message.obtain();
+        message.what=STATE_CONNECTED;
+        handler1.sendMessage(message);
+socket.connect();
+        sendReceive=new SendReceive(socket);
+        sendReceive.start();
+
+
+}catch (IOException e){
+  e.printStackTrace();
+        try {
+          socket.close();
+        } catch (IOException ex) {
+          throw new RuntimeException(ex);
+        }
+        Message message = Message.obtain();
+        message.what =STATE_CONNECTION_FALLED;
+        handler1.sendMessage(message);
+}
+
+
+    }
+    public void cancel() {
+      try {
+        socket.close();
+      } catch (IOException e) {
+        Log.e(TAG, "Could not close the client socket", e);
+      }
+    }
+
+
+
+}
+
+
+  private class SendReceive extends Thread
+  {
+    private final BluetoothSocket bluetoothSocket;
+    private final InputStream inputStream;
+    private final OutputStream outputStream;
+    private byte[] buffer;
+
+    public SendReceive (BluetoothSocket socket)
+    {
+      bluetoothSocket=socket;
+      InputStream tempIn = null;
+      OutputStream tempOut = null;
+
+      try {
+        tempIn=bluetoothSocket.getInputStream();
+      } catch (IOException e) {
+
+        e.printStackTrace();
+      }
+      try {
+        tempOut=bluetoothSocket.getOutputStream();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+
+
+      inputStream = tempIn;
+      outputStream = tempOut;
+    }
+
+    public void run()
+    {
+       buffer=new byte[1024];
+      int bytes;
+
+      while (true)
+      {
+        try {
+          bytes = inputStream.read(buffer);
+          handler1.obtainMessage(STATE_MESSAGE_RECEIVED,bytes,-1,buffer).sendToTarget();
+        } catch (IOException e) {
+          e.printStackTrace();
+          break;
+        }
+      }
+    }
+
+    public void write(byte[] bytes)
+    {
+      try {
+        outputStream.write(bytes);
+        handler.obtainMessage(
+                STATE_MESSAGE_RECEIVED, -1, -1, buffer).sendToTarget();
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+    }
+    public void cancel() {
+      try {
+        bluetoothSocket.close();
+      } catch (IOException e) {
+        Log.e(TAG, "Could not close the connect socket", e);
+      }
+    }
+  }
+
+ */
+
+
+
+
+
 
   @Override
   public void onStart() {
@@ -853,6 +1312,9 @@ public class DynamicStarMapActivity extends InjectableActivity
     searchTarget = new Vector3(x, y, z);
     searchTargetName = icicle.getString(ApplicationConstants.BUNDLE_TARGET_NAME);
     if (searchMode) {
+
+
+
       Log.d(TAG, "Searching for target " + searchTargetName + " at target=" + searchTarget);
       rendererController.queueEnableSearchOverlay(searchTarget, searchTargetName);
       cancelSearchButton.setVisibility(View.VISIBLE);
@@ -877,7 +1339,19 @@ public class DynamicStarMapActivity extends InjectableActivity
     // Store these for later.
     searchTarget = target;
     searchTargetName = searchTerm;
-    Log.d(TAG, "Searching for target=" + target);
+
+
+
+    Log.d(TAG, "Searching for target=" + target.x);
+    //************************
+    String string= String.valueOf(target.x);
+    Log.e(TAG,"cevap" + string.getBytes());
+  //  sendReceive.write(string.getBytes());
+    //**************************
+
+
+
+
     rendererController.queueViewerUpDirection(model.getZenith().copyForJ());
     rendererController.queueEnableSearchOverlay(target.copyForJ(), searchTerm);
     boolean autoMode = sharedPreferences.getBoolean(ApplicationConstants.AUTO_MODE_PREF_KEY, true);
@@ -971,11 +1445,26 @@ public class DynamicStarMapActivity extends InjectableActivity
 
   @Override
   protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-    if (requestCode == GOOGLE_PLAY_SERVICES_REQUEST_CODE) {
+  /*  if (requestCode == GOOGLE_PLAY_SERVICES_REQUEST_CODE) {
       playServicesChecker.runAfterDialog();
       return;
     }
     Log.w(TAG, "Unhandled activity result");
+*/
+    if(resultCode == requestCodeForeEnable){
+      if(resultCode == RESULT_OK){
+        Toast.makeText(this,"Bluetooth is enable",Toast.LENGTH_LONG).show();
+
+
+      }else if(resultCode == RESULT_CANCELED){
+        Toast.makeText(this,"Bluetooth Enabling Cancelled",Toast.LENGTH_LONG).show();
+
+      }
+    }
+
+
+
+
   }
 
  /* @Override
@@ -988,4 +1477,14 @@ public class DynamicStarMapActivity extends InjectableActivity
     }
     Log.w(TAG, "Unhandled request permissions result");
   }*/
+
+
+
+
+
+
+
+
+
+
 }
