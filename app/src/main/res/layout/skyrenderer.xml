@@ -4,22 +4,47 @@
     android:id="@+id/main_sky_view_root"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    android:orientation="vertical"
+    android:background="#000000"
 
-    >
+    android:orientation="vertical">
+
+
+    <ListView
+
+        android:id="@+id/listview2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+
+
+        android:layout_below="@+id/main_sky_view"
+        android:layout_alignParentBottom="true"
+        android:layout_marginTop="0dp"
+        android:layout_marginBottom="43dp"
+        android:background="#000000"
+        android:cacheColorHint="#000000"
+        android:divider="#FFFFFF"
+
+        android:dividerHeight="4px"
+        stardroid:layout_constraintBottom_toBottomOf="parent"
+        stardroid:layout_constraintEnd_toEndOf="parent"
+        stardroid:layout_constraintStart_toStartOf="parent"
+        stardroid:layout_constraintTop_toTopOf="parent">
+
+    </ListView>
+
+
 
     <FrameLayout
         android:id="@+id/main_sky_view"
         android:layout_width="fill_parent"
-        android:layout_height="fill_parent"
+        android:layout_height="600dp"
 
         android:layout_weight="1">
 
         <android.opengl.GLSurfaceView
             android:id="@+id/skyrenderer_view"
             android:layout_width="fill_parent"
-            android:layout_height="fill_parent"
-            />
+            android:layout_height="fill_parent" />
         <!-- Provides a translucent mask over the whole screen -->
         <View
             android:id="@+id/view_mask"
@@ -216,6 +241,8 @@
                 </com.google.android.stardroid.views.ButtonLayerView>
             </FrameLayout>
         </RelativeLayout>
+
     </FrameLayout>
+
 </RelativeLayout>
 

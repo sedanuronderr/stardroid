@@ -1,0 +1,20 @@
+{
+  "version": 3,
+  "artifactType": {
+    "type": "APK",
+    "kind": "Directory"
+  },
+  "applicationId": "com.google.android.stardroid",
+  "variantName": "fdroidRelease",
+  "elements": [
+    {
+      "type": "SINGLE",
+      "filters": [],
+      "attributes": [],
+      "versionCode": 1541,
+      "versionName": "1.10.1 - RC1",
+      "outputFile": "app-fdroid-release.apk"
+    }
+  ],
+  "elementType": "File"
+}

@@ -17,6 +17,7 @@ package com.google.android.stardroid.activities;
 import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
 import static android.Manifest.permission_group.CAMERA;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.FragmentManager;
@@ -56,7 +57,9 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.WindowManager;
 import android.view.animation.Animation;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -79,6 +82,7 @@ import com.google.android.stardroid.activities.util.ActivityLightLevelChanger.Ni
 import com.google.android.stardroid.activities.util.ActivityLightLevelManager;
 import com.google.android.stardroid.activities.util.FullscreenControlsManager;
 import com.google.android.stardroid.activities.util.GooglePlayServicesChecker;
+import com.google.android.stardroid.base.Communication;
 import com.google.android.stardroid.base.Lists;
 import com.google.android.stardroid.base.bluetooth;
 import com.google.android.stardroid.control.AstronomerModel;
@@ -137,19 +141,14 @@ public class DynamicStarMapActivity extends InjectableActivity
   private ScanState scanState = ScanState.NONE;
   private static final long LESCAN_PERIOD = 10000; // similar to bluetoothAdapter.startDiscovery
 
-  private BluetoothAdapter.LeScanCallback leScanCallback;
-  private BroadcastReceiver discoveryBroadcastReceiver;
-  private IntentFilter discoveryIntentFilter;
-
-  private Menu menu;
 
   BluetoothSocket btSocket = null;
-  BluetoothDevice remoteDevice;
-  BluetoothServerSocket mmServer;
+
   private boolean isBtConnected = false;
 
   private ProgressDialog progress;
   String address;
+  Button button1;
 
   @Override
   public DynamicStarMapComponent getComponent() {
@@ -299,8 +298,8 @@ public class DynamicStarMapActivity extends InjectableActivity
   static final int STATE_CONNECTED = 3;
   static final int STATE_CONNECTION_FALLED = 4;
   static final int STATE_MESSAGE_RECEIVED = 5;
-  ListView listView;
-
+  ListView pairedlist;
+  private Set<BluetoothDevice> pairedDevice;
   private static final String APP_NAME = "STARMAP";
   private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
@@ -311,7 +310,6 @@ public class DynamicStarMapActivity extends InjectableActivity
   public void onCreate(Bundle icicle) {
     Log.d(TAG, "onCreate at " + System.currentTimeMillis());
     super.onCreate(icicle);
-
     myBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
 
@@ -371,72 +369,6 @@ public class DynamicStarMapActivity extends InjectableActivity
       doSearchWithIntent(intent);
     }
     Log.d(TAG, "-onCreate at " + System.currentTimeMillis());
-  }
-
-  private void Disconnect() {
-    if (btSocket != null) {
-      try {
-        btSocket.close();
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    }
-    finish();
-  }
-
-  @Override
-  public void onBackPressed() {
-    super.onBackPressed();
-    Disconnect();
-  }
-
-
-  private class BTbaglan extends AsyncTask<Void, Void, Void> {
-    private boolean ConnectSuccess = true;
-
-    @Override
-    protected void onPreExecute() {
-      progress = ProgressDialog.show(DynamicStarMapActivity.this, "Bağlanıyor..", "Lütfen Bekleyin");
-    }
-
-    @Override
-    protected Void doInBackground(Void... voids) {
-      try {
-        if (btSocket == null || !isBtConnected) {
-          myBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-          BluetoothDevice cihaz = myBluetoothAdapter.getRemoteDevice(address);
-
-
-            btSocket = cihaz.createRfcommSocketToServiceRecord(MY_UUID);
-            BluetoothAdapter.getDefaultAdapter().cancelDiscovery();
-            btSocket.connect();
-
-
-
-        }
-      }
-        catch (IOException e){
-          ConnectSuccess =false;
-
-      }
-
-
-
-    return null;
-  }
-
-    @Override
-    protected void onPostExecute(Void unused) {
-      super.onPostExecute(unused);
-      if(!ConnectSuccess){
-        Toast.makeText(DynamicStarMapActivity.this, "Bağlantı hatası", Toast.LENGTH_SHORT).show();
-      finish();
-      }else{
-        Toast.makeText(DynamicStarMapActivity.this, "Bağlantı başarılı", Toast.LENGTH_SHORT).show();
-         isBtConnected = true;
-      }
-      progress.dismiss();
-    }
   }
 
 
@@ -589,7 +521,9 @@ public class DynamicStarMapActivity extends InjectableActivity
     }
     return true;
   }
+
   private static final String BLANK_FRAGMENT_TAG = "FRAGMENT_TAG";
+
   @SuppressLint("MissingPermission")
   @Override
   public boolean onOptionsItemSelected(MenuItem item) {
@@ -653,15 +587,15 @@ public class DynamicStarMapActivity extends InjectableActivity
         startActivity(new Intent(this, DiagnosticActivity.class));
         break;
       case R.id.ble_setup:
-      success_blue();
+        success_blue();
         break;
       case R.id.ble:
-     //   ServerClass serverClass = new ServerClass();
-     //   serverClass.start();
-        Intent intent3 = new Intent(this, bluetooth.class);
-        startActivity(intent3);
-      // show_dialog();
-
+        //   ServerClass serverClass = new ServerClass();
+        //   serverClass.start();
+        // Intent intent3 = new Intent(this, bluetooth.class);
+        //   startActivity(intent3);
+        // show_dialog();
+        listDevice();
         break;
       default:
         Log.e(TAG, "Unwired-up menu item");
@@ -671,11 +605,9 @@ public class DynamicStarMapActivity extends InjectableActivity
     return true;
 
 
-
-
   }
 
-  void success_blue(){
+  void success_blue() {
     if (myBluetoothAdapter == null) {
       Toast.makeText(getApplicationContext(), "Bluetooth does not support", Toast.LENGTH_LONG).show();
 
@@ -691,32 +623,30 @@ public class DynamicStarMapActivity extends InjectableActivity
     }
   }
 
-@SuppressLint("MissingPermission")
-void show_dialog(){
+  @SuppressLint("MissingPermission")
+  void show_dialog() {
     ListView listvieww = new ListView(this);
-  Set<BluetoothDevice> bt = myBluetoothAdapter.getBondedDevices();
-  myBluetoothAdapter.cancelDiscovery();
-  String[] strings=new String[bt.size()];
-  btArray = new BluetoothDevice[bt.size()];
-  int index=0;
+    Set<BluetoothDevice> bt = myBluetoothAdapter.getBondedDevices();
+    myBluetoothAdapter.cancelDiscovery();
+    String[] strings = new String[bt.size()];
+    btArray = new BluetoothDevice[bt.size()];
+    int index = 0;
 
-  if( bt.size()>0)
-  {
-    for(BluetoothDevice device : bt)
-    {
-      btArray[index]= device;
-      strings[index]=device.getName();
-      Log.e("connect","device"+ device.getName());
-      index++;
+    if (bt.size() > 0) {
+      for (BluetoothDevice device : bt) {
+        btArray[index] = device;
+        strings[index] = device.getName();
+        Log.e("connect", "device" + device.getName());
+        index++;
+      }
+
     }
-
-  }
 //*******************************
-  ArrayAdapter<String> arrayAdapter = new ArrayAdapter<String>(DynamicStarMapActivity.this,android.R.layout.select_dialog_singlechoice,strings);
-  listvieww.setAdapter(arrayAdapter);
+    ArrayAdapter<String> arrayAdapter = new ArrayAdapter<String>(DynamicStarMapActivity.this, android.R.layout.select_dialog_singlechoice, strings);
+    listvieww.setAdapter(arrayAdapter);
     AlertDialog.Builder builder = new AlertDialog.Builder(this);
 
-   builder.setTitle("Select Device");
+    builder.setTitle("Select Device");
 
     builder.setNegativeButton("cancel", new DialogInterface.OnClickListener() {
       @Override
@@ -729,10 +659,10 @@ void show_dialog(){
     builder.setAdapter(arrayAdapter, new DialogInterface.OnClickListener() {
       @Override
       public void onClick(DialogInterface dialog, int which) {
-      //  String strName = arrayAdapter.getItem(which);
-      //  builder.setMessage(strName);
+        //  String strName = arrayAdapter.getItem(which);
+        //  builder.setMessage(strName);
         builder.setView(listvieww);
-       address = btArray[which].getAddress().substring( btArray[which].getAddress().length()-17);
+        address = btArray[which].getAddress().substring(btArray[which].getAddress().length() - 17);
 
 
 
@@ -753,10 +683,152 @@ void show_dialog(){
       }
     });
 
-  AlertDialog alert = builder.create();
+    AlertDialog alert = builder.create();
 
-   alert.show();
-}
+    alert.show();
+  }
+
+  private void listDevice() {
+
+    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+      // TODO: Consider calling
+      //    ActivityCompat#requestPermissions
+      // here to request the missing permissions, and then overriding
+      //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+      //                                          int[] grantResults)
+      // to handle the case where the user grants the permission. See the documentation
+      // for ActivityCompat#requestPermissions for more details.
+      return;
+    }
+    pairedDevice = myBluetoothAdapter.getBondedDevices();
+
+
+    ArrayList list = new ArrayList();
+    if (pairedDevice.size() > 0) {
+      for (BluetoothDevice bt : pairedDevice) {
+        list.add(bt.getName() + "\n" + bt.getAddress());
+
+
+      }
+
+
+    } else {
+      Toast.makeText(this, "Eşleşmiş cihaz yok", Toast.LENGTH_SHORT).show();
+    }
+
+    final ArrayAdapter adapter = new ArrayAdapter(this, android.R.layout.simple_list_item_1, list);
+    pairedlist.setAdapter(adapter);
+    pairedlist.setOnItemClickListener(cihazSec);
+
+
+  }
+
+  public AdapterView.OnItemClickListener cihazSec = new AdapterView.OnItemClickListener() {
+
+    @Override
+    public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+
+
+      String info = ((TextView) view).getText().toString();
+      address = info.substring(info.length() - 17);
+      //Yeni bir Activity baslatman icin bir intent tanımlıyoruz
+      Toast.makeText(DynamicStarMapActivity.this, "adress" + address, Toast.LENGTH_SHORT).show();
+      new DynamicStarMapActivity.BTbaglan().execute();
+    }
+  };
+
+  private void Disconnect() {
+    if (btSocket != null) {
+      try {
+        btSocket.close();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    finish();
+  }
+
+  @Override
+  public void onBackPressed() {
+    super.onBackPressed();
+    Disconnect();
+  }
+
+
+  private class BTbaglan extends AsyncTask<Void, Void, Void> {
+    private boolean ConnectSuccess = true;
+
+    @Override
+    protected void onPreExecute() {
+      progress = ProgressDialog.show(DynamicStarMapActivity.this, "Bağlanıyor..", "Lütfen Bekleyin");
+    }
+
+    @Override
+    protected Void doInBackground(Void... voids) {
+      try {
+        if (btSocket == null || !isBtConnected) {
+          myBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+          BluetoothDevice cihaz = myBluetoothAdapter.getRemoteDevice(address);
+
+
+          if (ActivityCompat.checkSelfPermission(DynamicStarMapActivity.this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+
+          }
+          btSocket = cihaz.createRfcommSocketToServiceRecord(MY_UUID);
+          BluetoothAdapter.getDefaultAdapter().cancelDiscovery();
+          btSocket.connect();
+
+
+
+        }
+      }
+      catch (IOException e){
+        ConnectSuccess =false;
+
+      }
+
+
+
+      return null;
+    }
+
+    @Override
+    protected void onPostExecute(Void unused) {
+      super.onPostExecute(unused);
+      if(!ConnectSuccess){
+        Toast.makeText(DynamicStarMapActivity.this, "Bağlantı hatası", Toast.LENGTH_SHORT).show();
+
+      }else{
+        Toast.makeText(DynamicStarMapActivity.this, "Bağlantı başarılı", Toast.LENGTH_SHORT).show();
+        isBtConnected = true;
+      }
+      progress.dismiss();
+    }
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /*
   Handler handler1 = new Handler(msg -> {
@@ -1259,6 +1331,8 @@ socket.connect();
       }
     });
 
+    pairedlist = findViewById(R.id.listview2);
+
     ButtonLayerView providerButtons = (ButtonLayerView) findViewById(R.id.layer_buttons_control);
 
     int numChildren = providerButtons.getChildCount();
@@ -1343,6 +1417,8 @@ socket.connect();
 
 
     Log.d(TAG, "Searching for target=" + target.x);
+
+     sendSignal(String.valueOf(target.x),String.valueOf(target.y));
     //************************
     String string= String.valueOf(target.x);
     Log.e(TAG,"cevap" + string.getBytes());
@@ -1369,6 +1445,18 @@ socket.connect();
   /**
    * Creates and wire up all time player controls.
    */
+
+  private void sendSignal ( String number,String number2 ) {
+    if ( btSocket != null ) {
+      try {
+        btSocket.getOutputStream().write(number.toString().getBytes());
+        btSocket.getOutputStream().write(number2.toString().getBytes());
+        Toast.makeText(this, "Başarılı data ", Toast.LENGTH_SHORT).show();
+      } catch (IOException e) {
+        Toast.makeText(this, "Başarısız data ", Toast.LENGTH_SHORT).show();
+      }
+    }
+  }
   private void wireUpTimePlayer() {
     Log.d(TAG, "Initializing TimePlayer UI.");
     timePlayerUI = findViewById(R.id.time_player_view);

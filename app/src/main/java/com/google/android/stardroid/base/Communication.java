@@ -52,12 +52,12 @@ public class Communication extends InjectableActivity {
 
              @Override
              public void onClick(View v) {
-                 sendData("1");
+                 sendData(1);
              }
          });
     }
 
-    private void sendData(String s) {
+    private void sendData(Integer s) {
         if ( btSocket != null ) {
             try {
                 btSocket.getOutputStream().write(s.toString().getBytes());
