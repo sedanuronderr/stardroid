@@ -21,7 +21,7 @@ protobuf {
 dependencies {
     // Unlike the Android App which should only use the lite version of protos we need the full
     // version here as we need TextFormat which doesn't exist in the lite app.
-    implementation 'com.google.protobuf:protobuf-java:3.13.0'
+    implementation 'com.google.protobuf:protobuf-java:3.17.2'
     implementation 'com.google.guava:guava:24.1-jre'
 }
 
