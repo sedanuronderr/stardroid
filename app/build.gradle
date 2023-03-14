@@ -9,7 +9,7 @@ android {
     compileSdkVersion 33
 
     defaultConfig {
-        applicationId "com.google.android.stardroid"
+        applicationId "com.iteminnovation.android.stardroid"
         minSdkVersion 26
         targetSdkVersion 33
         versionCode 1541
@@ -95,10 +95,10 @@ dependencies {
     implementation "androidx.core:core-ktx:1.9.0"
 
 // Third-party
-    implementation 'com.google.guava:guava:30.1.1-jre'
+    implementation 'com.google.guava:guava:31.1-jre'
     implementation 'com.google.android.material:material:1.8.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    def dagger_version = "2.43.2"
+    def dagger_version = '2.45'
      implementation "com.google.dagger:dagger:$dagger_version"
     kapt "com.google.dagger:dagger-compiler:$dagger_version"
 
@@ -116,17 +116,17 @@ dependencies {
 
 // Testing
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.mockito:mockito-core:1.10.19'
-    testImplementation 'org.robolectric:robolectric:4.4'
-    testImplementation 'org.easymock:easymock:2.5.2'
-    testImplementation 'com.google.truth:truth:1.0.1'
+    testImplementation 'org.mockito:mockito-core:5.1.1'
+    testImplementation 'org.robolectric:robolectric:4.9.2'
+    testImplementation 'org.easymock:easymock:5.1.0'
+    testImplementation 'com.google.truth:truth:1.1.3'
     androidTestImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'org.easymock:easymock:2.5.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.3'
+    androidTestImplementation 'org.easymock:easymock:5.1.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.5.2'
     androidTestImplementation 'androidx.test:rules:1.5.0'
     // Optional -- Hamcrest library
-    androidTestImplementation 'org.hamcrest:hamcrest-library:1.3'
+    androidTestImplementation 'org.hamcrest:hamcrest-library:2.2'
     // Optional -- UI testing with Espresso
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
     // Optional -- UI testing with UI Automator
