@@ -19,6 +19,7 @@ import android.opengl.GLU;
 import android.util.Log;
 
 
+import com.itepinnovation.android.stardroid.activities.DynamicStarMapActivity;
 import com.itepinnovation.android.stardroid.renderer.util.ColoredQuad;
 import com.itepinnovation.android.stardroid.renderer.util.SearchHelper;
 import com.itepinnovation.android.stardroid.renderer.util.TextureManager;
@@ -43,7 +44,7 @@ public class OverlayManager extends RendererObjectManager {
   private boolean mSearching = false;
   private SearchHelper mSearchHelper = new SearchHelper();
   private ColoredQuad mDarkQuad = null;
-  private SearchArrow mSearchArrow = new SearchArrow();
+public DynamicStarMapActivity.SearchArrow mSearchArrow = new DynamicStarMapActivity.SearchArrow();
   private CrosshairOverlay mCrosshair = new CrosshairOverlay();
   
   private TextureManager mTextureManager;
@@ -55,6 +56,8 @@ public class OverlayManager extends RendererObjectManager {
   @Override
   public void reload(GL10 gl, boolean fullReload) {
     Resources res = getRenderState().getResources();
+
+
     mSearchArrow.reloadTextures(gl, res, textureManager());
     mCrosshair.reloadTextures(gl, res, textureManager());
   }
